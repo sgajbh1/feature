@@ -1,0 +1,52 @@
+# Databricks notebook source
+# MAGIC %md
+# MAGIC ## Overview
+# MAGIC 
+# MAGIC This notebook loads pulsar data (csv files format) from databricks file system to azure data lake gen 2 desired path of delta format.
+
+# COMMAND ----------
+
+# Establish the connectivity between Azure Databricks & ADLS Gen 2 through Service Principal based Authentication
+service_credential = dbutils.secrets.get(scope="gmf-dev-osi-data-adbsc",key="svcazsp-svcazsp-insurance-osi-dbw-dev-secret")
+spark.conf.set("fs.azure.account.auth.type.gmfeus2devosisadbw.dfs.core.windows.net", "OAuth")
+spark.conf.set("fs.azure.account.oauth.provider.type.gmfeus2devosisadbw.dfs.core.windows.net", "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider")
+spark.conf.set("fs.azure.account.oauth2.client.id.gmfeus2devosisadbw.dfs.core.windows.net", "1cd63e21-6a52-45cb-995c-c10d27e91eac")
+spark.conf.set("fs.azure.account.oauth2.client.secret.gmfeus2devosisadbw.dfs.core.windows.net", service_credential)
+spark.conf.set("fs.azure.account.oauth2.client.endpoint.gmfeus2devosisadbw.dfs.core.windows.net", "https://login.microsoftonline.com/e45cbcc1-1760-419a-a16b-35802285b3b3/oauth2/token")
+
+# COMMAND ----------
+
+from pyspark.sql.types import *
+
+# COMMAND ----------
+
+from pyspark.sql.types import *
+
+entity='Task220v2'
+
+# Parameterization - Source Data
+src_data_path = f"abfss://raw-stc@gmfeus2devosisadbw.dfs.core.windows.net/TMP/src_data/gmtlm/task220v2/"
+src_data_format = "parquet"
+# Parameterization - Target Data
+tgt_data_format = "delta"
+tgt_checkpoint_loc= f"abfss://raw-stc@gmfeus2devosisadbw.dfs.core.windows.net/DEMO/GM/TLM/VEDC/{entity}/checkpoint/"
+tgt_data_path= f"abfss://raw-stc@gmfeus2devosisadbw.dfs.core.windows.net/DEMO/GM/TLM/VEDC/{entity}/data/"
+
+spark.sql("set spark.sql.streaming.schemaInference=true")
+
+# Read data from source locatopn
+df = spark.readStream.format(src_data_format).load(src_data_path).dropDuplicates() 
+
+# Write data to target location
+df.writeStream.format(tgt_data_format).option("checkpointLocation",f"{tgt_checkpoint_loc}").trigger(once=True).start(f"{tgt_data_path}")
+#display(df)
+
+# COMMAND ----------
+
+#Directly read count from delta table
+spark.read.format('delta').load('abfss://raw-stc@gmfeus2devosisadbw.dfs.core.windows.net/DEMO/GM/TLM/VEDC/Task201/data/').count()
+
+# COMMAND ----------
+
+spark.sql("create schema if not exists demo")
+spark.sql(f"create table if not exists demo.task220v2 using delta location 'abfss://raw-stc@gmfeus2devosisadbw.dfs.core.windows.net/DEMO/GM/TLM/VEDC/Task220v2/data/'")
